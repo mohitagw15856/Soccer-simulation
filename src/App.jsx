@@ -20,7 +20,9 @@ const SoccerSimulation = () => {
     events: [],
     isPlaying: false,
     speed: 5,
-    momentum: { home: 50, away: 50 }
+    momentum: { home: 50, away: 50 },
+    halfTimeScore: { home: 0, away: 0 },
+    firstHalfStats: null
   });
 
   const [teams, setTeams] = useState({
@@ -49,6 +51,41 @@ const SoccerSimulation = () => {
   const [showVarPopup, setShowVarPopup] = useState(false);
   const [pausedForPopup, setPausedForPopup] = useState(false);
   const [wasPlayingBeforePopup, setWasPlayingBeforePopup] = useState(false);
+
+  // Player squads with positions and scoring probabilities
+  const [playerSquads, setPlayerSquads] = useState({
+    home: [
+      { name: 'Martinez', position: 'GK', scoringProb: 0.1 },
+      { name: 'Silva', position: 'DEF', scoringProb: 2 },
+      { name: 'Rodriguez', position: 'DEF', scoringProb: 3 },
+      { name: 'Johnson', position: 'DEF', scoringProb: 2.5 },
+      { name: 'Chen', position: 'DEF', scoringProb: 2 },
+      { name: 'Müller', position: 'MID', scoringProb: 8 },
+      { name: 'Kowalski', position: 'MID', scoringProb: 7 },
+      { name: 'Santos', position: 'MID', scoringProb: 9 },
+      { name: 'Ibrahim', position: 'MID', scoringProb: 6 },
+      { name: 'Okafor', position: 'FWD', scoringProb: 25 },
+      { name: 'Williams', position: 'FWD', scoringProb: 28 }
+    ],
+    away: [
+      { name: 'Anderson', position: 'GK', scoringProb: 0.1 },
+      { name: 'Garcia', position: 'DEF', scoringProb: 2 },
+      { name: 'Patel', position: 'DEF', scoringProb: 2.5 },
+      { name: 'Kim', position: 'DEF', scoringProb: 3 },
+      { name: 'Lopez', position: 'DEF', scoringProb: 2 },
+      { name: 'Nguyen', position: 'MID', scoringProb: 7 },
+      { name: 'Brown', position: 'MID', scoringProb: 8 },
+      { name: 'Fernandez', position: 'MID', scoringProb: 6 },
+      { name: 'Hassan', position: 'FWD', scoringProb: 22 },
+      { name: 'Ivanov', position: 'FWD', scoringProb: 26 },
+      { name: 'Taylor', position: 'FWD', scoringProb: 20 }
+    ]
+  });
+
+  const [playerStats, setPlayerStats] = useState({
+    home: {},
+    away: {}
+  });
 
   useEffect(() => {
     const initPlayers = () => {
@@ -94,6 +131,17 @@ const SoccerSimulation = () => {
     const interval = setInterval(() => {
       setGameState(prev => {
         const newMinute = prev.minute + (prev.speed / 60);
+        
+        // Check for half-time
+        if (prev.minute < 45 && newMinute >= 45 && !prev.firstHalfStats) {
+          return {
+            ...prev,
+            minute: newMinute,
+            halfTimeScore: { ...prev.score },
+            firstHalfStats: { ...prev.stats }
+          };
+        }
+        
         if (newMinute >= 90) {
           return { ...prev, minute: 90, isPlaying: false };
         }
@@ -322,10 +370,54 @@ const SoccerSimulation = () => {
   };
 
   const createEvent = (type, team, minute) => {
-    const playerNames = ['Silva', 'Martinez', 'Johnson', 'Rodriguez', 'Chen', 'Müller', 'Kowalski', 'Okafor', 'Ibrahim', 'Santos'];
     const managerNames = ['Guardiola', 'Mourinho', 'Klopp', 'Ancelotti', 'Zidane'];
-    const player = playerNames[Math.floor(Math.random() * playerNames.length)];
     const manager = managerNames[Math.floor(Math.random() * managerNames.length)];
+    
+    // Select player based on position and scoring probability
+    let player;
+    const squad = playerSquads[team];
+    
+    if (type === 'goal' || type === 'shot' || type === 'penalty') {
+      // Weight selection by scoring probability
+      const totalProb = squad.reduce((sum, p) => sum + p.scoringProb, 0);
+      let random = Math.random() * totalProb;
+      
+      for (const p of squad) {
+        random -= p.scoringProb;
+        if (random <= 0) {
+          player = p.name;
+          
+          // Track player stats
+          if (type === 'goal') {
+            setPlayerStats(prev => ({
+              ...prev,
+              [team]: {
+                ...prev[team],
+                [player]: {
+                  goals: (prev[team]?.[player]?.goals || 0) + 1,
+                  shots: (prev[team]?.[player]?.shots || 0) + 1
+                }
+              }
+            }));
+          } else if (type === 'shot') {
+            setPlayerStats(prev => ({
+              ...prev,
+              [team]: {
+                ...prev[team],
+                [player]: {
+                  goals: prev[team]?.[player]?.goals || 0,
+                  shots: (prev[team]?.[player]?.shots || 0) + 1
+                }
+              }
+            }));
+          }
+          break;
+        }
+      }
+    } else {
+      // Random player for other events
+      player = squad[Math.floor(Math.random() * squad.length)].name;
+    }
     
     const currentMinute = Math.floor(minute);
     const timeRemaining = 90 - currentMinute;
@@ -557,10 +649,55 @@ const SoccerSimulation = () => {
       events: [],
       isPlaying: false,
       speed: 5,
-      momentum: { home: 50, away: 50 }
+      momentum: { home: 50, away: 50 },
+      halfTimeScore: { home: 0, away: 0 },
+      firstHalfStats: null
     });
+    setPlayerStats({ home: {}, away: {} });
     setBall({ x: 400, y: 200, vx: 0, vy: 0 });
   };
+
+  // Calculate half-specific odds
+  const calculateHalfOdds = () => {
+    const currentMinute = gameState.minute;
+    const isFirstHalf = currentMinute < 45;
+    const isSecondHalf = currentMinute >= 45;
+    
+    if (isFirstHalf) {
+      // First half odds (0-45 min)
+      const timeInHalf = currentMinute;
+      const timeRemaining = 45 - timeInHalf;
+      const homeProb = (odds.xgHome / 2) * (gameState.momentum.home / 100) * (timeRemaining / 45);
+      const awayProb = (odds.xgAway / 2) * (gameState.momentum.away / 100) * (timeRemaining / 45);
+      
+      return {
+        half: 'First Half',
+        homeWin: Math.min(95, Math.max(5, homeProb * 100)).toFixed(1),
+        draw: Math.min(95, Math.max(5, (1 - homeProb - awayProb) * 100)).toFixed(1),
+        awayWin: Math.min(95, Math.max(5, awayProb * 100)).toFixed(1)
+      };
+    } else if (isSecondHalf && currentMinute < 90) {
+      // Second half odds (45-90 min)
+      const timeInSecondHalf = currentMinute - 45;
+      const timeRemaining = 90 - currentMinute;
+      
+      // Adjust for fatigue - more goals in second half
+      const fatigueMultiplier = 1.2;
+      const homeProb = (odds.xgHome / 2) * fatigueMultiplier * (gameState.momentum.home / 100) * (timeRemaining / 45);
+      const awayProb = (odds.xgAway / 2) * fatigueMultiplier * (gameState.momentum.away / 100) * (timeRemaining / 45);
+      
+      return {
+        half: 'Second Half',
+        homeWin: Math.min(95, Math.max(5, homeProb * 100)).toFixed(1),
+        draw: Math.min(95, Math.max(5, (1 - homeProb - awayProb) * 100)).toFixed(1),
+        awayWin: Math.min(95, Math.max(5, awayProb * 100)).toFixed(1)
+      };
+    }
+    
+    return null;
+  };
+
+  const halfOdds = calculateHalfOdds();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-white p-6">
@@ -706,31 +843,16 @@ const SoccerSimulation = () => {
             <div className="bg-white/5 backdrop-blur-lg rounded-xl p-4 border border-white/10 max-h-96 overflow-y-auto">
               <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
                 <TrendingUp className="w-5 h-5" />
-                In-Play Odds & Settings
+                Live Odds & Markets
               </h3>
               
               <div className="space-y-3 text-sm">
                 <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-lg p-3 border border-blue-500/20">
-                  <div className="text-xs text-gray-400 mb-2 font-bold">🔴 LIVE IN-PLAY ODDS</div>
+                  <div className="text-xs text-gray-400 mb-2 font-bold">🔴 FULL TIME RESULT</div>
                   <div className="space-y-1.5">
                     <div className="flex justify-between items-center">
-                      <span className="text-xs">{teams.home.name} to score next:</span>
+                      <span className="text-xs">{teams.home.name} Win:</span>
                       <span className="text-green-400 font-bold">
-                        {((odds.xgHome / 90) * (gameState.momentum.home / 100) * (90 - gameState.minute) * 100).toFixed(1)}%
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs">{teams.away.name} to score next:</span>
-                      <span className="text-red-400 font-bold">
-                        {((odds.xgAway / 90) * (gameState.momentum.away / 100) * (90 - gameState.minute) * 100).toFixed(1)}%
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center pt-1 border-t border-white/10">
-                      <span className="text-xs">Match result probability:</span>
-                    </div>
-                    <div className="flex justify-between items-center text-xs">
-                      <span>{teams.home.name} Win:</span>
-                      <span className="font-bold">
                         {gameState.score.home > gameState.score.away 
                           ? '85%' 
                           : gameState.score.home === gameState.score.away 
@@ -738,15 +860,15 @@ const SoccerSimulation = () => {
                           : '15%'}
                       </span>
                     </div>
-                    <div className="flex justify-between items-center text-xs">
-                      <span>Draw:</span>
-                      <span className="font-bold">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs">Draw:</span>
+                      <span className="text-yellow-400 font-bold">
                         {gameState.score.home === gameState.score.away ? '30%' : '5%'}
                       </span>
                     </div>
-                    <div className="flex justify-between items-center text-xs">
-                      <span>{teams.away.name} Win:</span>
-                      <span className="font-bold">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs">{teams.away.name} Win:</span>
+                      <span className="text-red-400 font-bold">
                         {gameState.score.away > gameState.score.home 
                           ? '85%' 
                           : gameState.score.home === gameState.score.away 
@@ -754,6 +876,63 @@ const SoccerSimulation = () => {
                           : '15%'}
                       </span>
                     </div>
+                  </div>
+                </div>
+
+                {halfOdds && (
+                  <div className="bg-gradient-to-r from-purple-500/10 to-pink-500/10 rounded-lg p-3 border border-purple-500/20">
+                    <div className="text-xs text-gray-400 mb-2 font-bold">⏱️ {halfOdds.half.toUpperCase()} WINNER</div>
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs">{teams.home.name}:</span>
+                        <span className="text-green-400 font-bold">{halfOdds.homeWin}%</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs">Draw:</span>
+                        <span className="text-yellow-400 font-bold">{halfOdds.draw}%</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs">{teams.away.name}:</span>
+                        <span className="text-red-400 font-bold">{halfOdds.awayWin}%</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {gameState.minute >= 45 && gameState.firstHalfStats && (
+                  <div className="bg-gradient-to-r from-green-500/10 to-blue-500/10 rounded-lg p-3 border border-green-500/20">
+                    <div className="text-xs text-gray-400 mb-2 font-bold">📊 HALF-TIME SCORE</div>
+                    <div className="flex justify-between items-center text-xl font-bold">
+                      <span>{gameState.halfTimeScore.home}</span>
+                      <span className="text-xs text-gray-400">HT</span>
+                      <span>{gameState.halfTimeScore.away}</span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-gradient-to-r from-orange-500/10 to-red-500/10 rounded-lg p-3 border border-orange-500/20">
+                  <div className="text-xs text-gray-400 mb-2 font-bold">⚽ NEXT GOALSCORER</div>
+                  <div className="space-y-1 max-h-32 overflow-y-auto">
+                    <div className="text-xs font-bold text-blue-400 mb-1">{teams.home.name}</div>
+                    {playerSquads.home.filter(p => p.position !== 'GK').map(player => {
+                      const adjustedProb = (player.scoringProb * (gameState.momentum.home / 100) * ((90 - gameState.minute) / 90)).toFixed(1);
+                      return (
+                        <div key={player.name} className="flex justify-between items-center text-xs">
+                          <span>{player.name} ({player.position})</span>
+                          <span className="font-bold text-green-400">{adjustedProb}%</span>
+                        </div>
+                      );
+                    })}
+                    <div className="text-xs font-bold text-red-400 mt-2 mb-1">{teams.away.name}</div>
+                    {playerSquads.away.filter(p => p.position !== 'GK').map(player => {
+                      const adjustedProb = (player.scoringProb * (gameState.momentum.away / 100) * ((90 - gameState.minute) / 90)).toFixed(1);
+                      return (
+                        <div key={player.name} className="flex justify-between items-center text-xs">
+                          <span>{player.name} ({player.position})</span>
+                          <span className="font-bold text-red-400">{adjustedProb}%</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -891,10 +1070,43 @@ const SoccerSimulation = () => {
           <div className="bg-white/5 backdrop-blur-lg rounded-xl p-4 border border-white/10">
             <h3 className="text-lg font-bold mb-4 flex items-center gap-2 sticky top-0 bg-inherit pb-2">
               <Clock className="w-5 h-5" />
-              Match Events
+              Match Events & Player Stats
             </h3>
             
-            <div className="space-y-2 max-h-[800px] overflow-y-auto pr-2">
+            {/* Player Stats Section */}
+            {(Object.keys(playerStats.home).length > 0 || Object.keys(playerStats.away).length > 0) && (
+              <div className="mb-4 pb-4 border-b border-white/10">
+                <div className="text-sm font-bold mb-2 text-purple-400">⭐ Top Scorers</div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <div className="font-bold text-blue-400 mb-1">{teams.home.name}</div>
+                    {Object.entries(playerStats.home)
+                      .sort((a, b) => b[1].goals - a[1].goals)
+                      .slice(0, 3)
+                      .map(([name, stats]) => (
+                        <div key={name} className="flex justify-between">
+                          <span>{name}</span>
+                          <span className="text-green-400">{stats.goals}⚽ ({stats.shots} shots)</span>
+                        </div>
+                      ))}
+                  </div>
+                  <div>
+                    <div className="font-bold text-red-400 mb-1">{teams.away.name}</div>
+                    {Object.entries(playerStats.away)
+                      .sort((a, b) => b[1].goals - a[1].goals)
+                      .slice(0, 3)
+                      .map(([name, stats]) => (
+                        <div key={name} className="flex justify-between">
+                          <span>{name}</span>
+                          <span className="text-green-400">{stats.goals}⚽ ({stats.shots} shots)</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            <div className="space-y-2 max-h-[650px] overflow-y-auto pr-2">
               {gameState.events.length === 0 ? (
                 <div className="text-center text-gray-500 py-8">
                   <Clock className="w-12 h-12 mx-auto mb-3 opacity-50" />
