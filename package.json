@@ -1,6 +1,7 @@
 {
   "name": "soccer-simulation",
   "version": "1.0.0",
+  "type": "module",
   "private": true,
   "dependencies": {
     "react": "^18.2.0",
