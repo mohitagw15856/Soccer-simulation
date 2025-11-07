@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Pause, RotateCcw, Settings, TrendingUp, Zap, Clock } from 'lucide-react';
+import { Play, Pause, RotateCcw, Settings, TrendingUp, Zap, Clock, Users } from 'lucide-react';
 
 const SoccerSimulation = () => {
   const canvasRef = useRef(null);
@@ -52,6 +52,29 @@ const SoccerSimulation = () => {
   const [varCheck, setVarCheck] = useState(null);
   const [showVarPopup, setShowVarPopup] = useState(false);
 
+  // CSS for animations
+  useEffect(() => {
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      @keyframes scaleIn {
+        from { transform: scale(0.8); opacity: 0; }
+        to { transform: scale(1); opacity: 1; }
+      }
+      .animate-fadeIn {
+        animation: fadeIn 0.3s ease-out;
+      }
+      .animate-scaleIn {
+        animation: scaleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+    `;
+    document.head.appendChild(style);
+    return () => document.head.removeChild(style);
+  }, []);
+
   // Initialize players based on formations
   useEffect(() => {
     const initPlayers = () => {
@@ -102,18 +125,19 @@ const SoccerSimulation = () => {
         }
 
         const events = generateEvents(prev, newMinute);
+        const processedState = processEvents(prev, events);
         
         return {
           ...prev,
+          ...processedState,
           minute: newMinute,
-          events: [...prev.events, ...events],
-          ...processEvents(prev, events)
+          events: [...prev.events, ...events]
         };
       });
     }, 1000 / 60);
 
     return () => clearInterval(interval);
-  }, [gameState.isPlaying, gameState.speed]);
+  }, [gameState.isPlaying, gameState.speed, odds]);
 
   // Canvas animation
   useEffect(() => {
@@ -126,7 +150,9 @@ const SoccerSimulation = () => {
       drawField(ctx);
       drawPlayers(ctx);
       drawBall(ctx);
-      updatePhysics();
+      if (gameState.isPlaying) {
+        updatePhysics();
+      }
       animationRef.current = requestAnimationFrame(animate);
     };
 
@@ -137,7 +163,7 @@ const SoccerSimulation = () => {
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [players, ball]);
+  }, [players, ball, gameState.isPlaying]);
 
   const drawField = (ctx) => {
     ctx.fillStyle = '#1a4d2e';
@@ -319,8 +345,9 @@ const SoccerSimulation = () => {
     events.forEach(event => {
       switch (event.type) {
         case 'goal':
+          // 15% chance of VAR check on goals
           if (Math.random() < 0.15) {
-            const varDecision = Math.random() < 0.6;
+            const varDecision = Math.random() < 0.6; // 60% chance VAR allows goal, 40% cancels
             const varReasons = varDecision 
               ? ['No offside', 'Fair challenge', 'No handball', 'Goal stands!']
               : ['Offside!', 'Handball in buildup', 'Foul before goal', 'Goal disallowed!'];
@@ -335,19 +362,25 @@ const SoccerSimulation = () => {
             });
             setShowVarPopup(true);
             
+            // Hide popup after 4 seconds
             setTimeout(() => setShowVarPopup(false), 4000);
             
             if (varDecision) {
+              // Goal allowed
               newState.score[event.team]++;
               newState.stats.shots[event.team]++;
               newState.stats.shotsOnTarget[event.team]++;
               newState.momentum[event.team] = Math.min(100, newState.momentum[event.team] + 15);
               newState.momentum[event.team === 'home' ? 'away' : 'home'] = Math.max(0, newState.momentum[event.team === 'home' ? 'away' : 'home'] - 15);
+              
+              // VAR drama increases momentum
               newState.momentum[event.team] = Math.min(100, newState.momentum[event.team] + 5);
             } else {
+              // Goal disallowed - massive momentum swing
               newState.momentum[event.team] = Math.max(0, newState.momentum[event.team] - 20);
               newState.momentum[event.team === 'home' ? 'away' : 'home'] = Math.min(100, newState.momentum[event.team === 'home' ? 'away' : 'home'] + 20);
               
+              // Adjust odds - team loses confidence
               if (event.team === 'home') {
                 setOdds(prev => ({
                   ...prev,
@@ -360,6 +393,7 @@ const SoccerSimulation = () => {
                 }));
               }
               
+              // Add VAR event to timeline
               newState.events.push({
                 type: 'var',
                 team: event.team,
@@ -370,6 +404,7 @@ const SoccerSimulation = () => {
               });
             }
           } else {
+            // Normal goal without VAR
             newState.score[event.team]++;
             newState.stats.shots[event.team]++;
             newState.stats.shotsOnTarget[event.team]++;
@@ -434,6 +469,7 @@ const SoccerSimulation = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-white p-6">
+      {/* VAR Popup */}
       {showVarPopup && varCheck && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fadeIn">
           <div className="bg-gradient-to-br from-slate-800 to-slate-900 border-4 rounded-3xl p-12 max-w-2xl mx-4 shadow-2xl animate-scaleIn" style={{ borderColor: varCheck.color }}>
@@ -667,7 +703,7 @@ const SoccerSimulation = () => {
               />
             </div>
 
-          <div className="bg-white/5 backdrop-blur-lg rounded-xl p-4 border border-white/10">
+            <div className="bg-white/5 backdrop-blur-lg rounded-xl p-4 border border-white/10">
               <h3 className="text-sm font-bold mb-3 text-center text-gray-400">POSSESSION</h3>
               <div className="flex items-center gap-2">
                 <span className="text-lg font-bold w-12">{gameState.possession.home}%</span>
@@ -735,7 +771,7 @@ const SoccerSimulation = () => {
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1">
-                      <span className="font-bold text-sm">{event.minute}'</span>
+                      <span className="font-bold text-sm">{event.minute}</span>
                       <span className="text-xs px-2 py-1 bg-white/10 rounded">{event.type.toUpperCase()}</span>
                     </div>
                     <p className="text-sm">{event.commentary}</p>
