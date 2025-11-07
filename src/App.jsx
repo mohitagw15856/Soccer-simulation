@@ -269,6 +269,7 @@ const SoccerSimulation = () => {
     const homeMomentum = state.momentum.home / 100;
     const awayMomentum = state.momentum.away / 100;
 
+    // Goals - based on xG
     const homeGoalProb = (odds.xgHome / 90) * probPerSecond * homeMomentum;
     const awayGoalProb = (odds.xgAway / 90) * probPerSecond * awayMomentum;
 
@@ -279,8 +280,9 @@ const SoccerSimulation = () => {
       events.push(createEvent('goal', 'away', minute));
     }
 
-    const homeFoulProb = (odds.foulsHome / 90) * probPerSecond;
-    const awayFoulProb = (odds.foulsAway / 90) * probPerSecond;
+    // Fouls - increased frequency for more events
+    const homeFoulProb = (odds.foulsHome / 90) * probPerSecond * 2; // 2x more frequent
+    const awayFoulProb = (odds.foulsAway / 90) * probPerSecond * 2;
 
     if (Math.random() < homeFoulProb) {
       events.push(createEvent('foul', 'home', minute));
@@ -289,16 +291,18 @@ const SoccerSimulation = () => {
       events.push(createEvent('foul', 'away', minute));
     }
 
-    const homeYellowProb = (odds.yellowsHome / 90) * probPerSecond;
-    const awayYellowProb = (odds.yellowsAway / 90) * probPerSecond;
+    // Yellow cards - only after some fouls
+    const homeYellowProb = (odds.yellowsHome / 90) * probPerSecond * 1.5;
+    const awayYellowProb = (odds.yellowsAway / 90) * probPerSecond * 1.5;
 
-    if (Math.random() < homeYellowProb && state.stats.fouls.home > 3) {
+    if (Math.random() < homeYellowProb && state.stats.fouls.home > 2) {
       events.push(createEvent('yellow', 'home', minute));
     }
-    if (Math.random() < awayYellowProb && state.stats.fouls.away > 3) {
+    if (Math.random() < awayYellowProb && state.stats.fouls.away > 2) {
       events.push(createEvent('yellow', 'away', minute));
     }
 
+    // Red cards - rare but possible after yellows
     const homeRedProb = (odds.redsHome / 90) * probPerSecond;
     const awayRedProb = (odds.redsAway / 90) * probPerSecond;
 
@@ -309,9 +313,34 @@ const SoccerSimulation = () => {
       events.push(createEvent('red', 'away', minute));
     }
 
-    if (Math.random() < 0.02) {
+    // Shots - increased for more action
+    if (Math.random() < 0.04) { // Doubled from 0.02
       const team = Math.random() < (odds.possessionHome / 100) ? 'home' : 'away';
       events.push(createEvent('shot', team, minute));
+    }
+
+    // Corners - new event type
+    if (Math.random() < 0.03) {
+      const team = Math.random() < (odds.possessionHome / 100) ? 'home' : 'away';
+      events.push(createEvent('corner', team, minute));
+    }
+
+    // Manager sent off! (rare but dramatic)
+    if (Math.random() < 0.0005 && (state.stats.fouls.home > 5 || state.stats.fouls.away > 5)) {
+      const team = state.stats.fouls.home > state.stats.fouls.away ? 'home' : 'away';
+      events.push(createEvent('manager_card', team, minute));
+    }
+
+    // Injury stoppage (adds drama)
+    if (Math.random() < 0.001) {
+      const team = Math.random() < 0.5 ? 'home' : 'away';
+      events.push(createEvent('injury', team, minute));
+    }
+
+    // Penalty awarded! (very exciting)
+    if (Math.random() < 0.0008) {
+      const team = Math.random() < (odds.possessionHome / 100) ? 'home' : 'away';
+      events.push(createEvent('penalty', team, minute));
     }
 
     return events;
@@ -323,10 +352,11 @@ const SoccerSimulation = () => {
     
     const commentary = {
       goal: `⚽ GOAL! ${player} scores for ${team === 'home' ? teams.home.name : teams.away.name}!`,
-      foul: `Foul by ${player} (${team === 'home' ? teams.home.name : teams.away.name})`,
+      foul: `⚠️ Foul by ${player} (${team === 'home' ? teams.home.name : teams.away.name})`,
       yellow: `🟨 Yellow card for ${player} (${team === 'home' ? teams.home.name : teams.away.name})`,
-      red: `🟥 RED CARD! ${player} is sent off!`,
-      shot: `Shot by ${player} (${team === 'home' ? teams.home.name : teams.away.name})`
+      red: `🟥 RED CARD! ${player} is sent off! (${team === 'home' ? teams.home.name : teams.away.name})`,
+      shot: `🎯 Shot by ${player} (${team === 'home' ? teams.home.name : teams.away.name})`,
+      corner: `🚩 Corner kick for ${team === 'home' ? teams.home.name : teams.away.name}`
     };
 
     return {
@@ -335,7 +365,7 @@ const SoccerSimulation = () => {
       minute: Math.floor(minute),
       player,
       commentary: commentary[type],
-      timestamp: Date.now()
+      timestamp: Date.now() + Math.random() // Add randomness to prevent duplicate keys
     };
   };
 
@@ -432,6 +462,102 @@ const SoccerSimulation = () => {
             newState.stats.shotsOnTarget[event.team]++;
           }
           break;
+        case 'corner':
+          newState.stats.corners[event.team]++;
+          break;
+        case 'manager_card':
+          // Manager cards cause chaos!
+          const cardMomentumChange = 10;
+          newState.momentum[event.team] = Math.max(0, newState.momentum[event.team] - cardMomentumChange);
+          newState.momentum[event.team === 'home' ? 'away' : 'home'] = 100 - newState.momentum[event.team];
+          
+          // Show dramatic popup
+          setVarCheck({
+            title: 'MANAGER SENT OFF!',
+            decision: 'RED CARD TO MANAGER',
+            reason: 'Excessive dissent and confrontational behavior',
+            player: 'Manager',
+            team: event.team,
+            color: '#ef4444',
+            type: 'manager_card'
+          });
+          setShowVarPopup(true);
+          setTimeout(() => setShowVarPopup(false), 5000);
+          break;
+        case 'injury':
+          // Injuries slow down the team
+          const injuryMomentumChange = 8;
+          newState.momentum[event.team] = Math.max(0, newState.momentum[event.team] - injuryMomentumChange);
+          newState.momentum[event.team === 'home' ? 'away' : 'home'] = 100 - newState.momentum[event.team];
+          
+          // Show injury popup
+          setVarCheck({
+            title: 'INJURY STOPPAGE',
+            decision: 'MEDICAL ATTENTION NEEDED',
+            reason: 'Player down and receiving treatment',
+            player: event.player,
+            team: event.team,
+            color: '#f59e0b',
+            type: 'injury'
+          });
+          setShowVarPopup(true);
+          setTimeout(() => setShowVarPopup(false), 3000);
+          break;
+        case 'penalty':
+          // Penalty awarded - big moment!
+          const penaltyMomentumChange = 12;
+          newState.momentum[event.team] = Math.min(100, newState.momentum[event.team] + penaltyMomentumChange);
+          newState.momentum[event.team === 'home' ? 'away' : 'home'] = 100 - newState.momentum[event.team];
+          
+          // Show penalty popup
+          setVarCheck({
+            title: 'PENALTY KICK!',
+            decision: 'PENALTY AWARDED',
+            reason: 'Foul in the penalty area - spot kick!',
+            player: event.player,
+            team: event.team,
+            color: '#8b5cf6',
+            type: 'penalty'
+          });
+          setShowVarPopup(true);
+          setTimeout(() => setShowVarPopup(false), 4000);
+          
+          // 70% chance the penalty is scored
+          if (Math.random() < 0.7) {
+            setTimeout(() => {
+              setGameState(prev => {
+                const newScore = { ...prev.score };
+                newScore[event.team]++;
+                return {
+                  ...prev,
+                  score: newScore,
+                  events: [...prev.events, {
+                    type: 'goal',
+                    team: event.team,
+                    minute: Math.floor(prev.minute),
+                    player: event.player,
+                    commentary: `⚽ PENALTY SCORED! ${event.player} converts from the spot!`,
+                    timestamp: Date.now() + Math.random()
+                  }]
+                };
+              });
+            }, 2000);
+          } else {
+            setTimeout(() => {
+              setGameState(prev => ({
+                ...prev,
+                events: [...prev.events, {
+                  type: 'shot',
+                  team: event.team,
+                  minute: Math.floor(prev.minute),
+                  player: event.player,
+                  commentary: `❌ PENALTY MISSED! ${event.player} hits the post!`,
+                  timestamp: Date.now() + Math.random()
+                }]
+              }));
+            }, 2000);
+          }
+          break;
       }
     });
 
@@ -474,15 +600,15 @@ const SoccerSimulation = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fadeIn">
           <div className="bg-gradient-to-br from-slate-800 to-slate-900 border-4 rounded-3xl p-12 max-w-2xl mx-4 shadow-2xl animate-scaleIn" style={{ borderColor: varCheck.color }}>
             <div className="text-center">
-              <div className="text-8xl mb-6 animate-pulse">🖥️</div>
+              <div className="text-8xl mb-6 animate-pulse">{varCheck.type === 'manager_card' ? '👔' : varCheck.type === 'penalty' ? '⚡' : varCheck.type === 'injury' ? '🚑' : '🖥️'}</div>
               <div className="text-6xl font-black mb-4 animate-pulse" style={{ color: varCheck.color }}>
-                VAR REVIEW
+                {varCheck.title || 'VAR REVIEW'}
               </div>
               <div className="text-4xl font-bold mb-6" style={{ color: varCheck.color }}>
                 {varCheck.decision}
               </div>
               <div className="text-2xl text-gray-300 mb-4">
-                {varCheck.player} ({varCheck.team === 'home' ? teams.home.name : teams.away.name})
+                {varCheck.player} {varCheck.team && `(${varCheck.team === 'home' ? teams.home.name : teams.away.name})`}
               </div>
               <div className="text-xl text-gray-400 bg-white/5 rounded-lg p-4">
                 {varCheck.reason}
@@ -728,6 +854,7 @@ const SoccerSimulation = () => {
                 {[
                   { label: 'Shots', key: 'shots' },
                   { label: 'Shots on Target', key: 'shotsOnTarget' },
+                  { label: 'Corners', key: 'corners' },
                   { label: 'Fouls', key: 'fouls' },
                   { label: 'Yellow Cards', key: 'yellowCards' },
                   { label: 'Red Cards', key: 'redCards' }
