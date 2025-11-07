@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Pause, RotateCcw, Settings, TrendingUp, Zap, Clock, Users } from 'lucide-react';
+import { Play, Pause, RotateCcw, Settings, TrendingUp, Zap, Clock } from 'lucide-react';
 
 const SoccerSimulation = () => {
   const canvasRef = useRef(null);
   const animationRef = useRef(null);
   
-  // Game state
   const [gameState, setGameState] = useState({
     minute: 0,
     score: { home: 0, away: 0 },
@@ -24,13 +23,11 @@ const SoccerSimulation = () => {
     momentum: { home: 50, away: 50 }
   });
 
-  // Team configuration
   const [teams, setTeams] = useState({
     home: { name: 'FC Odds-Based', color: '#3B82F6', formation: '4-4-2' },
     away: { name: 'United Implied', color: '#EF4444', formation: '4-3-3' }
   });
 
-  // Odds configuration
   const [odds, setOdds] = useState({
     homeWin: 1.65,
     draw: 3.50,
@@ -46,36 +43,13 @@ const SoccerSimulation = () => {
     possessionHome: 55
   });
 
-  // Ball and player positions
   const [ball, setBall] = useState({ x: 400, y: 200, vx: 0, vy: 0 });
   const [players, setPlayers] = useState([]);
   const [varCheck, setVarCheck] = useState(null);
   const [showVarPopup, setShowVarPopup] = useState(false);
+  const [pausedForPopup, setPausedForPopup] = useState(false);
+  const [wasPlayingBeforePopup, setWasPlayingBeforePopup] = useState(false);
 
-  // CSS for animations
-  useEffect(() => {
-    const style = document.createElement('style');
-    style.textContent = `
-      @keyframes fadeIn {
-        from { opacity: 0; }
-        to { opacity: 1; }
-      }
-      @keyframes scaleIn {
-        from { transform: scale(0.8); opacity: 0; }
-        to { transform: scale(1); opacity: 1; }
-      }
-      .animate-fadeIn {
-        animation: fadeIn 0.3s ease-out;
-      }
-      .animate-scaleIn {
-        animation: scaleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-      }
-    `;
-    document.head.appendChild(style);
-    return () => document.head.removeChild(style);
-  }, []);
-
-  // Initialize players based on formations
   useEffect(() => {
     const initPlayers = () => {
       const homePlayers = generateFormation('4-4-2', teams.home.color, 'home');
@@ -113,9 +87,9 @@ const SoccerSimulation = () => {
     }));
   };
 
-  // Simulation engine
   useEffect(() => {
-    if (!gameState.isPlaying || gameState.minute >= 90) return;
+    if ((!gameState.isPlaying || gameState.minute >= 90) && !pausedForPopup) return;
+    if (pausedForPopup) return;
 
     const interval = setInterval(() => {
       setGameState(prev => {
@@ -137,9 +111,8 @@ const SoccerSimulation = () => {
     }, 1000 / 60);
 
     return () => clearInterval(interval);
-  }, [gameState.isPlaying, gameState.speed, odds]);
+  }, [gameState.isPlaying, gameState.speed, odds, pausedForPopup]);
 
-  // Canvas animation
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -150,7 +123,7 @@ const SoccerSimulation = () => {
       drawField(ctx);
       drawPlayers(ctx);
       drawBall(ctx);
-      if (gameState.isPlaying) {
+      if (gameState.isPlaying && !pausedForPopup) {
         updatePhysics();
       }
       animationRef.current = requestAnimationFrame(animate);
@@ -163,7 +136,7 @@ const SoccerSimulation = () => {
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [players, ball, gameState.isPlaying]);
+  }, [players, ball, gameState.isPlaying, pausedForPopup]);
 
   const drawField = (ctx) => {
     ctx.fillStyle = '#1a4d2e';
@@ -176,7 +149,6 @@ const SoccerSimulation = () => {
 
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 2;
-
     ctx.strokeRect(10, 10, 780, 380);
 
     ctx.beginPath();
@@ -262,6 +234,18 @@ const SoccerSimulation = () => {
     }));
   };
 
+  const showPopupWithPause = (popupData, duration) => {
+    setWasPlayingBeforePopup(gameState.isPlaying);
+    setPausedForPopup(true);
+    setVarCheck(popupData);
+    setShowVarPopup(true);
+    
+    setTimeout(() => {
+      setShowVarPopup(false);
+      setPausedForPopup(false);
+    }, duration);
+  };
+
   const generateEvents = (state, minute) => {
     const events = [];
     const probPerSecond = 1 / 60;
@@ -269,7 +253,6 @@ const SoccerSimulation = () => {
     const homeMomentum = state.momentum.home / 100;
     const awayMomentum = state.momentum.away / 100;
 
-    // Goals - based on xG
     const homeGoalProb = (odds.xgHome / 90) * probPerSecond * homeMomentum;
     const awayGoalProb = (odds.xgAway / 90) * probPerSecond * awayMomentum;
 
@@ -280,8 +263,7 @@ const SoccerSimulation = () => {
       events.push(createEvent('goal', 'away', minute));
     }
 
-    // Fouls - increased frequency for more events
-    const homeFoulProb = (odds.foulsHome / 90) * probPerSecond * 2; // 2x more frequent
+    const homeFoulProb = (odds.foulsHome / 90) * probPerSecond * 2;
     const awayFoulProb = (odds.foulsAway / 90) * probPerSecond * 2;
 
     if (Math.random() < homeFoulProb) {
@@ -291,7 +273,6 @@ const SoccerSimulation = () => {
       events.push(createEvent('foul', 'away', minute));
     }
 
-    // Yellow cards - only after some fouls
     const homeYellowProb = (odds.yellowsHome / 90) * probPerSecond * 1.5;
     const awayYellowProb = (odds.yellowsAway / 90) * probPerSecond * 1.5;
 
@@ -302,7 +283,6 @@ const SoccerSimulation = () => {
       events.push(createEvent('yellow', 'away', minute));
     }
 
-    // Red cards - rare but possible after yellows
     const homeRedProb = (odds.redsHome / 90) * probPerSecond;
     const awayRedProb = (odds.redsAway / 90) * probPerSecond;
 
@@ -313,32 +293,27 @@ const SoccerSimulation = () => {
       events.push(createEvent('red', 'away', minute));
     }
 
-    // Shots - increased for more action
-    if (Math.random() < 0.04) { // Doubled from 0.02
+    if (Math.random() < 0.04) {
       const team = Math.random() < (odds.possessionHome / 100) ? 'home' : 'away';
       events.push(createEvent('shot', team, minute));
     }
 
-    // Corners - new event type
     if (Math.random() < 0.03) {
       const team = Math.random() < (odds.possessionHome / 100) ? 'home' : 'away';
       events.push(createEvent('corner', team, minute));
     }
 
-    // Manager sent off! (rare but dramatic)
-    if (Math.random() < 0.0005 && (state.stats.fouls.home > 5 || state.stats.fouls.away > 5)) {
+    if (Math.random() < 0.0008 && (state.stats.fouls.home > 5 || state.stats.fouls.away > 5)) {
       const team = state.stats.fouls.home > state.stats.fouls.away ? 'home' : 'away';
       events.push(createEvent('manager_card', team, minute));
     }
 
-    // Injury stoppage (adds drama)
-    if (Math.random() < 0.001) {
+    if (Math.random() < 0.002) {
       const team = Math.random() < 0.5 ? 'home' : 'away';
       events.push(createEvent('injury', team, minute));
     }
 
-    // Penalty awarded! (very exciting)
-    if (Math.random() < 0.0008) {
+    if (Math.random() < 0.0015) {
       const team = Math.random() < (odds.possessionHome / 100) ? 'home' : 'away';
       events.push(createEvent('penalty', team, minute));
     }
@@ -347,8 +322,18 @@ const SoccerSimulation = () => {
   };
 
   const createEvent = (type, team, minute) => {
-    const playerNames = ['Silva', 'Martinez', 'Johnson', 'Rodriguez', 'Chen', 'Müller', 'Kowalski', 'Okafor'];
+    const playerNames = ['Silva', 'Martinez', 'Johnson', 'Rodriguez', 'Chen', 'Müller', 'Kowalski', 'Okafor', 'Ibrahim', 'Santos'];
+    const managerNames = ['Guardiola', 'Mourinho', 'Klopp', 'Ancelotti', 'Zidane'];
     const player = playerNames[Math.floor(Math.random() * playerNames.length)];
+    const manager = managerNames[Math.floor(Math.random() * managerNames.length)];
+    
+    const currentMinute = Math.floor(minute);
+    const timeRemaining = 90 - currentMinute;
+    const momentumFactor = team === 'home' ? gameState.momentum.home / 100 : gameState.momentum.away / 100;
+    const baseXg = team === 'home' ? odds.xgHome : odds.xgAway;
+    
+    const scoringChancePerMinute = (baseXg / 90) * momentumFactor;
+    const oddsToScoreNext = (scoringChancePerMinute * timeRemaining * 100).toFixed(1);
     
     const commentary = {
       goal: `⚽ GOAL! ${player} scores for ${team === 'home' ? teams.home.name : teams.away.name}!`,
@@ -356,7 +341,10 @@ const SoccerSimulation = () => {
       yellow: `🟨 Yellow card for ${player} (${team === 'home' ? teams.home.name : teams.away.name})`,
       red: `🟥 RED CARD! ${player} is sent off! (${team === 'home' ? teams.home.name : teams.away.name})`,
       shot: `🎯 Shot by ${player} (${team === 'home' ? teams.home.name : teams.away.name})`,
-      corner: `🚩 Corner kick for ${team === 'home' ? teams.home.name : teams.away.name}`
+      corner: `🚩 Corner kick for ${team === 'home' ? teams.home.name : teams.away.name}`,
+      manager_card: `👔 MANAGER SENT OFF! ${manager} of ${team === 'home' ? teams.home.name : teams.away.name} shown RED CARD for dissent!`,
+      injury: `🚑 Injury stoppage - ${player} (${team === 'home' ? teams.home.name : teams.away.name}) needs medical attention`,
+      penalty: `⚡ PENALTY AWARDED to ${team === 'home' ? teams.home.name : teams.away.name}! Huge moment!`
     };
 
     return {
@@ -365,7 +353,8 @@ const SoccerSimulation = () => {
       minute: Math.floor(minute),
       player,
       commentary: commentary[type],
-      timestamp: Date.now() + Math.random() // Add randomness to prevent duplicate keys
+      timestamp: Date.now() + Math.random(),
+      inPlayOdds: oddsToScoreNext
     };
   };
 
@@ -375,42 +364,34 @@ const SoccerSimulation = () => {
     events.forEach(event => {
       switch (event.type) {
         case 'goal':
-          // 15% chance of VAR check on goals
-          if (Math.random() < 0.15) {
-            const varDecision = Math.random() < 0.6; // 60% chance VAR allows goal, 40% cancels
+          if (Math.random() < 0.35) {
+            const varDecision = Math.random() < 0.55;
             const varReasons = varDecision 
-              ? ['No offside', 'Fair challenge', 'No handball', 'Goal stands!']
-              : ['Offside!', 'Handball in buildup', 'Foul before goal', 'Goal disallowed!'];
+              ? ['No offside', 'Fair challenge', 'No handball', 'Goal stands!', 'Clean play', 'VAR confirms goal']
+              : ['Offside!', 'Handball in buildup', 'Foul before goal', 'Goal disallowed!', 'Player interfered with keeper', 'Ball out of play'];
             const reason = varReasons[Math.floor(Math.random() * varReasons.length)];
             
-            setVarCheck({
+            showPopupWithPause({
               decision: varDecision ? 'GOAL ALLOWED' : 'GOAL DISALLOWED',
               reason: reason,
               team: event.team,
               player: event.player,
               color: varDecision ? '#10b981' : '#ef4444'
-            });
-            setShowVarPopup(true);
-            
-            // Hide popup after 4 seconds
-            setTimeout(() => setShowVarPopup(false), 4000);
+            }, 4000);
             
             if (varDecision) {
-              // Goal allowed
               newState.score[event.team]++;
               newState.stats.shots[event.team]++;
               newState.stats.shotsOnTarget[event.team]++;
-              newState.momentum[event.team] = Math.min(100, newState.momentum[event.team] + 15);
-              newState.momentum[event.team === 'home' ? 'away' : 'home'] = Math.max(0, newState.momentum[event.team === 'home' ? 'away' : 'home'] - 15);
               
-              // VAR drama increases momentum
-              newState.momentum[event.team] = Math.min(100, newState.momentum[event.team] + 5);
+              const momentumChange = 15;
+              newState.momentum[event.team] = Math.min(100, newState.momentum[event.team] + momentumChange);
+              newState.momentum[event.team === 'home' ? 'away' : 'home'] = 100 - newState.momentum[event.team];
             } else {
-              // Goal disallowed - massive momentum swing
-              newState.momentum[event.team] = Math.max(0, newState.momentum[event.team] - 20);
-              newState.momentum[event.team === 'home' ? 'away' : 'home'] = Math.min(100, newState.momentum[event.team === 'home' ? 'away' : 'home'] + 20);
+              const momentumChange = 20;
+              newState.momentum[event.team] = Math.max(0, newState.momentum[event.team] - momentumChange);
+              newState.momentum[event.team === 'home' ? 'away' : 'home'] = 100 - newState.momentum[event.team];
               
-              // Adjust odds - team loses confidence
               if (event.team === 'home') {
                 setOdds(prev => ({
                   ...prev,
@@ -423,23 +404,23 @@ const SoccerSimulation = () => {
                 }));
               }
               
-              // Add VAR event to timeline
               newState.events.push({
                 type: 'var',
                 team: event.team,
                 minute: Math.floor(state.minute),
                 player: event.player,
                 commentary: `🖥️ VAR REVIEW: Goal by ${event.player} DISALLOWED! ${reason}`,
-                timestamp: Date.now()
+                timestamp: Date.now() + Math.random()
               });
             }
           } else {
-            // Normal goal without VAR
             newState.score[event.team]++;
             newState.stats.shots[event.team]++;
             newState.stats.shotsOnTarget[event.team]++;
-            newState.momentum[event.team] = Math.min(100, newState.momentum[event.team] + 15);
-            newState.momentum[event.team === 'home' ? 'away' : 'home'] = Math.max(0, newState.momentum[event.team === 'home' ? 'away' : 'home'] - 15);
+            
+            const momentumChange = 15;
+            newState.momentum[event.team] = Math.min(100, newState.momentum[event.team] + momentumChange);
+            newState.momentum[event.team === 'home' ? 'away' : 'home'] = 100 - newState.momentum[event.team];
           }
           
           setBall({ x: 400, y: 200, vx: (Math.random() - 0.5) * 20, vy: (Math.random() - 0.5) * 20 });
@@ -450,11 +431,13 @@ const SoccerSimulation = () => {
         case 'yellow':
           newState.stats.yellowCards[event.team]++;
           newState.momentum[event.team] = Math.max(0, newState.momentum[event.team] - 5);
+          newState.momentum[event.team === 'home' ? 'away' : 'home'] = 100 - newState.momentum[event.team];
           break;
         case 'red':
           newState.stats.redCards[event.team]++;
-          newState.momentum[event.team] = Math.max(0, newState.momentum[event.team] - 25);
-          newState.momentum[event.team === 'home' ? 'away' : 'home'] = Math.min(100, newState.momentum[event.team === 'home' ? 'away' : 'home'] + 25);
+          const redMomentumChange = 25;
+          newState.momentum[event.team] = Math.max(0, newState.momentum[event.team] - redMomentumChange);
+          newState.momentum[event.team === 'home' ? 'away' : 'home'] = 100 - newState.momentum[event.team];
           break;
         case 'shot':
           newState.stats.shots[event.team]++;
@@ -466,13 +449,11 @@ const SoccerSimulation = () => {
           newState.stats.corners[event.team]++;
           break;
         case 'manager_card':
-          // Manager cards cause chaos!
           const cardMomentumChange = 10;
           newState.momentum[event.team] = Math.max(0, newState.momentum[event.team] - cardMomentumChange);
           newState.momentum[event.team === 'home' ? 'away' : 'home'] = 100 - newState.momentum[event.team];
           
-          // Show dramatic popup
-          setVarCheck({
+          showPopupWithPause({
             title: 'MANAGER SENT OFF!',
             decision: 'RED CARD TO MANAGER',
             reason: 'Excessive dissent and confrontational behavior',
@@ -480,18 +461,14 @@ const SoccerSimulation = () => {
             team: event.team,
             color: '#ef4444',
             type: 'manager_card'
-          });
-          setShowVarPopup(true);
-          setTimeout(() => setShowVarPopup(false), 5000);
+          }, 5000);
           break;
         case 'injury':
-          // Injuries slow down the team
           const injuryMomentumChange = 8;
           newState.momentum[event.team] = Math.max(0, newState.momentum[event.team] - injuryMomentumChange);
           newState.momentum[event.team === 'home' ? 'away' : 'home'] = 100 - newState.momentum[event.team];
           
-          // Show injury popup
-          setVarCheck({
+          showPopupWithPause({
             title: 'INJURY STOPPAGE',
             decision: 'MEDICAL ATTENTION NEEDED',
             reason: 'Player down and receiving treatment',
@@ -499,18 +476,14 @@ const SoccerSimulation = () => {
             team: event.team,
             color: '#f59e0b',
             type: 'injury'
-          });
-          setShowVarPopup(true);
-          setTimeout(() => setShowVarPopup(false), 3000);
+          }, 3000);
           break;
         case 'penalty':
-          // Penalty awarded - big moment!
           const penaltyMomentumChange = 12;
           newState.momentum[event.team] = Math.min(100, newState.momentum[event.team] + penaltyMomentumChange);
           newState.momentum[event.team === 'home' ? 'away' : 'home'] = 100 - newState.momentum[event.team];
           
-          // Show penalty popup
-          setVarCheck({
+          showPopupWithPause({
             title: 'PENALTY KICK!',
             decision: 'PENALTY AWARDED',
             reason: 'Foul in the penalty area - spot kick!',
@@ -518,11 +491,8 @@ const SoccerSimulation = () => {
             team: event.team,
             color: '#8b5cf6',
             type: 'penalty'
-          });
-          setShowVarPopup(true);
-          setTimeout(() => setShowVarPopup(false), 4000);
+          }, 4000);
           
-          // 70% chance the penalty is scored
           if (Math.random() < 0.7) {
             setTimeout(() => {
               setGameState(prev => {
@@ -541,7 +511,7 @@ const SoccerSimulation = () => {
                   }]
                 };
               });
-            }, 2000);
+            }, 4500);
           } else {
             setTimeout(() => {
               setGameState(prev => ({
@@ -555,14 +525,13 @@ const SoccerSimulation = () => {
                   timestamp: Date.now() + Math.random()
                 }]
               }));
-            }, 2000);
+            }, 4500);
           }
           break;
       }
     });
 
-    const totalMomentum = newState.momentum.home + newState.momentum.away;
-    newState.possession.home = Math.round((newState.momentum.home / totalMomentum) * 100);
+    newState.possession.home = Math.round(newState.momentum.home);
     newState.possession.away = 100 - newState.possession.home;
 
     return newState;
@@ -595,7 +564,6 @@ const SoccerSimulation = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-white p-6">
-      {/* VAR Popup */}
       {showVarPopup && varCheck && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fadeIn">
           <div className="bg-gradient-to-br from-slate-800 to-slate-900 border-4 rounded-3xl p-12 max-w-2xl mx-4 shadow-2xl animate-scaleIn" style={{ borderColor: varCheck.color }}>
@@ -638,7 +606,7 @@ const SoccerSimulation = () => {
                 {Math.floor(gameState.minute)}'
               </div>
               <div className="text-sm text-gray-400">
-                {gameState.minute >= 90 ? 'FULL TIME' : 'LIVE'}
+                {gameState.minute >= 90 ? 'FULL TIME' : pausedForPopup ? 'PAUSED' : 'LIVE'}
               </div>
             </div>
 
@@ -738,10 +706,61 @@ const SoccerSimulation = () => {
             <div className="bg-white/5 backdrop-blur-lg rounded-xl p-4 border border-white/10 max-h-96 overflow-y-auto">
               <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
                 <TrendingUp className="w-5 h-5" />
-                Match Odds & xG
+                In-Play Odds & Settings
               </h3>
               
               <div className="space-y-3 text-sm">
+                <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-lg p-3 border border-blue-500/20">
+                  <div className="text-xs text-gray-400 mb-2 font-bold">🔴 LIVE IN-PLAY ODDS</div>
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs">{teams.home.name} to score next:</span>
+                      <span className="text-green-400 font-bold">
+                        {((odds.xgHome / 90) * (gameState.momentum.home / 100) * (90 - gameState.minute) * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs">{teams.away.name} to score next:</span>
+                      <span className="text-red-400 font-bold">
+                        {((odds.xgAway / 90) * (gameState.momentum.away / 100) * (90 - gameState.minute) * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center pt-1 border-t border-white/10">
+                      <span className="text-xs">Match result probability:</span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span>{teams.home.name} Win:</span>
+                      <span className="font-bold">
+                        {gameState.score.home > gameState.score.away 
+                          ? '85%' 
+                          : gameState.score.home === gameState.score.away 
+                          ? `${Math.round(45 + (gameState.momentum.home - 50) * 0.3)}%`
+                          : '15%'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span>Draw:</span>
+                      <span className="font-bold">
+                        {gameState.score.home === gameState.score.away ? '30%' : '5%'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span>{teams.away.name} Win:</span>
+                      <span className="font-bold">
+                        {gameState.score.away > gameState.score.home 
+                          ? '85%' 
+                          : gameState.score.home === gameState.score.away 
+                          ? `${Math.round(45 + (gameState.momentum.away - 50) * 0.3)}%`
+                          : '15%'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t border-white/10 pt-3">
+                  <div className="text-xs text-gray-400 mb-2 font-bold">⚙️ PRE-MATCH SETTINGS</div>
+                </div>
+
                 <div>
                   <label className="text-gray-400 block mb-1">Home Team Name</label>
                   <input
@@ -879,12 +898,25 @@ const SoccerSimulation = () => {
               {gameState.events.length === 0 ? (
                 <div className="text-center text-gray-500 py-8">
                   <Clock className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                  <p>Waiting for match to start...</p>
+                  <p className="font-bold mb-2">Press "Start Match" to begin...</p>
+                  <p className="text-xs">All match events will appear here:</p>
+                  <div className="text-xs mt-2 space-y-1">
+                    <div>⚽ Goals</div>
+                    <div>🟨 Yellow Cards</div>
+                    <div>🟥 Red Cards</div>
+                    <div>⚠️ Fouls</div>
+                    <div>🎯 Shots</div>
+                    <div>🚩 Corners</div>
+                    <div>🖥️ VAR Reviews</div>
+                    <div>👔 Manager Cards</div>
+                    <div>🚑 Injuries</div>
+                    <div>⚡ Penalties</div>
+                  </div>
                 </div>
               ) : (
-                [...gameState.events].reverse().map((event, idx) => (
+                [...gameState.events].reverse().map((event) => (
                   <div
-                    key={event.timestamp}
+                    key={`${event.timestamp}-${event.minute}`}
                     className={`p-3 rounded-lg backdrop-blur-sm border transition-all ${
                       event.type === 'goal'
                         ? 'bg-green-500/20 border-green-500/50'
@@ -894,12 +926,20 @@ const SoccerSimulation = () => {
                         ? 'bg-red-500/20 border-red-500/50'
                         : event.type === 'yellow'
                         ? 'bg-yellow-500/20 border-yellow-500/50'
+                        : event.type === 'corner'
+                        ? 'bg-blue-500/20 border-blue-500/50'
+                        : event.type === 'manager_card'
+                        ? 'bg-orange-500/20 border-orange-500/50'
+                        : event.type === 'injury'
+                        ? 'bg-amber-500/20 border-amber-500/50'
+                        : event.type === 'penalty'
+                        ? 'bg-purple-600/20 border-purple-600/50'
                         : 'bg-white/5 border-white/10'
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1">
-                      <span className="font-bold text-sm">{event.minute}</span>
-                      <span className="text-xs px-2 py-1 bg-white/10 rounded">{event.type.toUpperCase()}</span>
+                      <span className="font-bold text-sm">{event.minute}'</span>
+                      <span className="text-xs px-2 py-1 bg-white/10 rounded uppercase">{event.type}</span>
                     </div>
                     <p className="text-sm">{event.commentary}</p>
                   </div>
